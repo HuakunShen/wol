@@ -1,12 +1,12 @@
 # WOL
 
-## Install for Golang
+## Golang
 
 ```bash
 go get github.com/HuakunShen/wol/wol-go
 ```
 
-## Usage
+### Usage
 ```go
 import {
   wol "github.com/HuakunShen/wol/wol-go"
@@ -15,6 +15,10 @@ import {
 wol.WakeOnLan(mac, ip, port)
 ```
 
-## CLI Demo
+### CLI Demo
 - [main.go](./main.go)
 - executable: [wol](./wol)
+
+## Python
+
+- [wol.py](./wol-py/wol.py)
