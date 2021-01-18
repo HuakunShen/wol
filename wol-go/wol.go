@@ -7,7 +7,10 @@ import (
 	"regexp"
 )
 
-func CreateMagicPacket(mac string) []byte {
+func CreateMagicPacket(mac string) ([]byte, error) {
+	if len(mac) != 12 {
+		return nil, fmt.Errorf("Error: mac has wrong length")
+	}
 	mac_bytes, err := hex.DecodeString(mac)
 	if err != nil {
 		panic(err)
@@ -17,7 +20,7 @@ func CreateMagicPacket(mac string) []byte {
 	for i := 0; i < 16; i++ {
 		packet = append(packet, mac_bytes...)
 	}
-	return packet
+	return packet, nil
 }
 
 func WakeOnLan(mac, ip, port string) error {
@@ -26,7 +29,7 @@ func WakeOnLan(mac, ip, port string) error {
 	} else if len(mac) == 17 {
 		matched, err := regexp.MatchString("^([0-9A-Fa-f]{2}[\\.:-]){5}([0-9A-Fa-f]{2})$", mac)
 		if err != nil {
-			fmt.Println("Error matching mac address:", mac)
+			return err
 		} else if matched {
 			newMac := ""
 			for _, letter := range mac {
@@ -41,23 +44,19 @@ func WakeOnLan(mac, ip, port string) error {
 	} else {
 		return fmt.Errorf("mac address wrong length")
 	}
-	magicPacket := CreateMagicPacket(mac)
+	magicPacket, err := CreateMagicPacket(mac)
+	if err != nil {
+		return err
+	}
 	conn, err := net.Dial("udp", ip+":"+port)
 	if err != nil {
-		return fmt.Errorf("Error: connection failed: ", err)
-	} else {
-		fmt.Println("Connection Successful")
+		return err
 	}
-
-	if n, err := conn.Write(magicPacket); err == nil && n != 102 {
+	if n, err := conn.Write(magicPacket); err != nil && n != 102 {
 		return fmt.Errorf("Error: magic packet sent was %d bytes (expected 102 bytes sent)", n)
-	} else {
-		fmt.Println("Magic packet sent successfully")
 	}
 	if err = conn.Close(); err != nil {
-		return fmt.Errorf("Error: Close Connection Failed:", err)
-	} else {
-		fmt.Println("Connection Closed")
+		return err
 	}
 	return nil
 }
