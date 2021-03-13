@@ -5,21 +5,21 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strings"
 )
 
 func CreateMagicPacket(mac string) ([]byte, error) {
 	if len(mac) != 12 {
-		return nil, fmt.Errorf("Error: mac has wrong length")
+		return nil, fmt.Errorf("mac has wrong length")
 	}
-	mac_bytes, err := hex.DecodeString(mac)
+	macRepeat := strings.Repeat(mac, 16) // 16 * 6 = 96 bytes
+	macBytes, err := hex.DecodeString(macRepeat)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	packet := make([]byte, 0, 102)
-	packet = append(packet, []byte{255, 255, 255, 255, 255, 255}...)
-	for i := 0; i < 16; i++ {
-		packet = append(packet, mac_bytes...)
-	}
+	packet := make([]byte, 0, 102) // 6+16*6=102 (mac address is 6 bytes too)
+	packet = append(packet, []byte(strings.Repeat("\xFF", 6))...)
+	packet = append(packet, macBytes...)
 	return packet, nil
 }
 
@@ -32,8 +32,12 @@ func WakeOnLan(mac, ip, port string) error {
 			return err
 		} else if matched {
 			newMac := ""
+			macRegex, err := regexp.Compile("^[0-9A-Fa-f]$")
+			if err != nil {
+				return err
+			}
 			for _, letter := range mac {
-				if matched, err := regexp.MatchString("^[0-9A-Fa-f]$", string(letter)); matched == true && err == nil {
+				if matched := macRegex.MatchString(string(letter)); matched {
 					newMac += string(letter)
 				}
 			}
@@ -53,10 +57,11 @@ func WakeOnLan(mac, ip, port string) error {
 		return err
 	}
 	if n, err := conn.Write(magicPacket); err != nil && n != 102 {
-		return fmt.Errorf("Error: magic packet sent was %d bytes (expected 102 bytes sent)", n)
+		return fmt.Errorf("magic packet sent was %d bytes (expected 102 bytes sent)", n)
 	}
 	if err = conn.Close(); err != nil {
 		return err
 	}
 	return nil
 }
+
