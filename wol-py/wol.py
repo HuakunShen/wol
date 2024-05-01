@@ -3,7 +3,7 @@ import argparse
 import time
 
 
-def create_magic_packet(macaddress: str):
+def create_magic_packet(macaddress: str) -> bytes:
     if len(macaddress) == 17:
         sep = macaddress[2]
         macaddress = macaddress.replace(sep, "")
