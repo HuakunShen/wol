@@ -64,4 +64,3 @@ func WakeOnLan(mac, ip, port string) error {
 	}
 	return nil
 }
-
