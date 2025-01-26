@@ -16,8 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install
-        working-directory: packages/jsr
+        working-directory: wol-js
 
       - name: Publish package
-        working-directory: packages/jsr
+        working-directory: wol-js
         run: bunx jsr publish
