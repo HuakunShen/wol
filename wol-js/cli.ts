@@ -1,4 +1,4 @@
-import { wakeOnLan } from "./src/wol";
+import { wakeOnLan } from "./src/mod";
 import { defineCommand, runMain } from "citty";
 import { version } from "./package.json";
 
