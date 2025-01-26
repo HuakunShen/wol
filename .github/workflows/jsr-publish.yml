@@ -1,0 +1,23 @@
+name: JSR Publish
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+        working-directory: packages/jsr
+
+      - name: Publish package
+        working-directory: packages/jsr
+        run: bunx jsr publish
