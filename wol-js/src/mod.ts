@@ -1,9 +1,10 @@
 import dgram from "dgram";
+import { Buffer } from "node:buffer";
 
 /**
  * Construct a Wake-on-LAN magic packet from a MAC address.
- * @param mac 
- * @returns 
+ * @param mac
+ * @returns
  */
 export function createMagicPacket(mac: string): Buffer {
   if (mac.length !== 12) {
@@ -18,11 +19,15 @@ export function createMagicPacket(mac: string): Buffer {
 
 /**
  * The library entrypoint to send a Wake-on-LAN magic packet.
- * @param mac 
- * @param ip 
- * @param port 
+ * @param mac
+ * @param ip
+ * @param port
  */
-export async function wakeOnLan(mac: string, ip: string, port: number = 9): Promise<void> {
+export async function wakeOnLan(
+  mac: string,
+  ip: string,
+  port: number = 9
+): Promise<void> {
   if (mac.length === 12) {
     // regular case
   } else if (mac.length === 17) {
@@ -55,4 +60,3 @@ export async function wakeOnLan(mac: string, ip: string, port: number = 9): Prom
     });
   });
 }
-
