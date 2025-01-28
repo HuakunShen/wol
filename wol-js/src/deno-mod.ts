@@ -48,5 +48,3 @@ export async function wakeOnLan(
   console.log("Wake-on-LAN packet sent!");
   socket.close();
 }
-
-wakeOnLan("74:56:3C:30:D4:3A", "255.255.255.255", 9);
