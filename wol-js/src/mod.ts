@@ -52,7 +52,7 @@ export async function wakeOnLan(
       if (err) {
         console.error("Error sending broadcast:", err);
       } else {
-        console.log("Broadcast message sent!");
+        // console.log("Broadcast message sent!");
       }
 
       // Close the socket

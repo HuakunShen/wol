@@ -45,6 +45,5 @@ export async function wakeOnLan(
   // Send the magic packet to the broadcast address
   // deno-lint-ignore
   await socket.send(magicPacket, { transport: "udp", hostname: ip, port });
-  console.log("Wake-on-LAN packet sent!");
   socket.close();
 }
