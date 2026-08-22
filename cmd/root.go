@@ -15,29 +15,20 @@ import (
 var (
 	port int
 	ip   string
-	mac  string
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "wol",
+	Use:   "wol <mac>",
 	Short: "WakeOnLan CLI",
 	Long:  ``,
-	Run: func(cmd *cobra.Command, args []string) {
-		if mac == "" {
-			fmt.Println("No argument received, at least give me a mac address")
-			cmd.Help()
-		} else {
-			fmt.Println("IP:\t\t", ip)
-			fmt.Println("Port:\t\t", port)
-			fmt.Println("Mac Address:\t", mac)
-			err := wol.WakeOnLan(mac, ip, strconv.Itoa(port))
-			if err != nil {
-				fmt.Println("Error:", err)
-			} else {
-				fmt.Println("Success")
-			}
-		}
+	Args:  cobra.ExactArgs(1),
+	// Usage is only helpful for argument errors, not for a failed send.
+	SilenceUsage: true,
+	// Execute prints the error itself.
+	SilenceErrors: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return wol.WakeOnLan(args[0], ip, strconv.Itoa(port))
 	},
 }
 
@@ -45,7 +36,7 @@ var rootCmd = &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, "wol:", err)
 		os.Exit(1)
 	}
 }
@@ -56,8 +47,4 @@ func init() {
 	// will be global for your application.
 	rootCmd.PersistentFlags().IntVarP(&port, "port", "p", 9, "Port Number, Default: 9")
 	rootCmd.PersistentFlags().StringVarP(&ip, "ip", "i", "255.255.255.255", "IP, Default: 255.255.255.255")
-	rootCmd.Args = cobra.ExactArgs(1)
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		mac = args[0]
-	}
 }

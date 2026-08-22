@@ -16,3 +16,11 @@
 .vscode/
 # macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Zig
+zig-out/
+.zig-cache/
