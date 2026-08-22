@@ -17,11 +17,11 @@ wol --help
 
 ### Usage
 ```go
-import {
+import (
   wol "github.com/HuakunShen/wol/wol-go"
-}
+)
 ...
-wol.WakeOnLan(mac, ip, port)
+err := wol.WakeOnLan(mac, ip, port) // port is a string, e.g. "9"
 ```
 
 ### CLI Demo
@@ -31,6 +31,20 @@ wol.WakeOnLan(mac, ip, port)
 ## Python
 
 - [wol.py](./wol-py/wol.py)
+
+```bash
+python3 wol-py/wol.py aa:bb:cc:dd:ee:ff -i 255.255.255.255 -p 9
+python3 -m unittest discover wol-py
+```
+
+## Zig
+
+- [wol-zig](./wol-zig)
+
+```bash
+cd wol-zig && zig build run -- aa:bb:cc:dd:ee:ff 255.255.255.255 9
+zig build test
+```
 
 ## JavaScript / TypeScript
 
@@ -51,3 +65,11 @@ See [wol-js/README.md](./wol-js/README.md) for usage; the Deno entrypoint needs
 ```bash
 cd wol-rust && cargo run -- aa:bb:cc:dd:ee:ff 255.255.255.255 9
 ```
+
+## MAC address formats
+
+Every implementation accepts the same two forms: 12 bare hexadecimal
+characters (`aabbccddeeff`), or six hexadecimal pairs separated by `.`, `:` or
+`-` (`aa:bb:cc:dd:ee:ff`). Separators are only accepted in the positions where
+they belong, and anything else is rejected rather than silently reinterpreted.
+All of them emit a byte-identical 102-byte packet and exit non-zero on failure.
