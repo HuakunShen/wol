@@ -41,6 +41,8 @@ python3 -m unittest discover wol-py
 
 - [wol-zig](./wol-zig)
 
+Requires Zig 0.16 or newer.
+
 ```bash
 cd wol-zig && zig build run -- aa:bb:cc:dd:ee:ff 255.255.255.255 9
 zig build test

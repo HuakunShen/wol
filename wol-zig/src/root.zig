@@ -1,5 +1,5 @@
 const std = @import("std");
-const posix = std.posix;
+const net = std.Io.net;
 const testing = std.testing;
 
 pub const Error = error{
@@ -55,24 +55,19 @@ pub fn createMagicPacket(mac: [6]u8) [102]u8 {
 }
 
 /// Send a Wake-on-LAN magic packet for `mac` to `ip`:`port`.
-pub fn wakeOnLan(mac: []const u8, ip: []const u8, port: u16) !void {
+pub fn wakeOnLan(io: std.Io, mac: []const u8, ip: []const u8, port: u16) !void {
     if (port == 0) return error.InvalidPort;
 
     const packet = createMagicPacket(try parseMac(mac));
-    const addr = try std.net.Address.parseIp4(ip, port);
+    const dest: net.IpAddress = .{ .ip4 = try net.Ip4Address.parse(ip, port) };
+    const source: net.IpAddress = .{ .ip4 = .unspecified(0) };
 
-    const sockfd = try posix.socket(posix.AF.INET, posix.SOCK.DGRAM, posix.IPPROTO.UDP);
-    defer posix.close(sockfd);
+    // allow_broadcast is required for destinations such as 255.255.255.255;
+    // without it the send fails with error.AccessDenied.
+    const socket = try source.bind(io, .{ .mode = .dgram, .allow_broadcast = true });
+    defer socket.close(io);
 
-    // Without SO_BROADCAST, sending to 255.255.255.255 is refused.
-    try posix.setsockopt(
-        sockfd,
-        posix.SOL.SOCKET,
-        posix.SO.BROADCAST,
-        &std.mem.toBytes(@as(c_int, 1)),
-    );
-
-    _ = try posix.sendto(sockfd, &packet, 0, &addr.any, addr.getOsSockLen());
+    try socket.send(io, &dest, &packet);
 }
 
 test "parseMac accepts bare and separated forms" {
@@ -117,23 +112,32 @@ test "createMagicPacket layout" {
 }
 
 test "wakeOnLan rejects port zero" {
-    try testing.expectError(error.InvalidPort, wakeOnLan("aabbccddeeff", "127.0.0.1", 0));
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    try testing.expectError(
+        error.InvalidPort,
+        wakeOnLan(threaded.io(), "aabbccddeeff", "127.0.0.1", 0),
+    );
 }
 
 test "wakeOnLan sends a well-formed packet" {
-    const sockfd = try posix.socket(posix.AF.INET, posix.SOCK.DGRAM, posix.IPPROTO.UDP);
-    defer posix.close(sockfd);
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    const bind_addr = try std.net.Address.parseIp4("127.0.0.1", 0);
-    try posix.bind(sockfd, &bind_addr.any, bind_addr.getOsSockLen());
+    const listen_addr: net.IpAddress = .{ .ip4 = .loopback(0) };
+    const server = try listen_addr.bind(io, .{ .mode = .dgram });
+    defer server.close(io);
 
-    var bound: std.net.Address = undefined;
-    var bound_len: posix.socklen_t = @sizeOf(std.net.Address);
-    try posix.getsockname(sockfd, &bound.any, &bound_len);
-
-    try wakeOnLan("aa:bb:cc:dd:ee:ff", "127.0.0.1", bound.getPort());
+    // bind takes the address by const pointer; the port the OS actually chose
+    // comes back on the socket.
+    try wakeOnLan(io, "aa:bb:cc:dd:ee:ff", "127.0.0.1", server.address.ip4.port);
 
     var buf: [128]u8 = undefined;
-    const n = try posix.recv(sockfd, &buf, 0);
-    try testing.expectEqualSlices(u8, &createMagicPacket(try parseMac("aabbccddeeff")), buf[0..n]);
+    const message = try server.receive(io, &buf);
+    try testing.expectEqualSlices(
+        u8,
+        &createMagicPacket(try parseMac("aabbccddeeff")),
+        message.data,
+    );
 }
