@@ -47,3 +47,25 @@ bun install
 bun run build   # emits dist/mod.js, dist/cli.js and the .d.ts files
 deno check src/deno-mod.ts deno-cli.ts
 ```
+
+## Breaking changes in 0.2.0
+
+`wakeOnLan` now rejects when the send fails, where it previously logged the
+error to the console and resolved anyway. Its promise also resolves only once
+the packet has actually been handed to the operating system, rather than while
+it is still queued.
+
+Callers that ignore the returned promise will therefore see an unhandled
+rejection on failure, which terminates Node by default. Await the call and
+handle the error:
+
+```ts
+try {
+  await wakeOnLan("70:a8:d3:b8:8c:8d", "255.255.255.255", 9);
+} catch (err) {
+  console.error(err);
+}
+```
+
+Malformed MAC addresses and out-of-range ports are also rejected now, where
+some previously produced a silently malformed packet.
