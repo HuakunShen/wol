@@ -1,0 +1,34 @@
+{
+  "name": "@hk/wol",
+  "version": "0.1.5",
+  "license": "MIT",
+  "unstable": [
+    "net"
+  ],
+  "compilerOptions": {
+    "lib": [
+      "deno.window",
+      "deno.unstable"
+    ]
+  },
+  "exports": {
+    ".": "./src/mod.ts",
+    "./deno": "./src/deno-mod.ts"
+  },
+  "imports": {
+    "citty": "npm:citty@^0.1.6"
+  },
+  "tasks": {
+    "cli": "deno run --allow-net --allow-env deno-cli.ts"
+  },
+  "publish": {
+    "include": [
+      "src",
+      "deno.json",
+      "README.md"
+    ],
+    "exclude": [
+      "src/**/*.test.ts"
+    ]
+  }
+}
