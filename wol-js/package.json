@@ -1,14 +1,28 @@
 {
   "name": "wol-js",
-  "version": "0.1.4",
-  "exports": {
-    ".": "./src/mod.ts"
-  },
+  "version": "0.2.0",
   "type": "module",
-  "devDependencies": {
-    "@types/bun": "latest"
+  "types": "./dist/mod.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.ts",
+      "default": "./dist/mod.js"
+    }
   },
-  "peerDependencies": {
+  "bin": {
+    "wol": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun run build.ts && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22",
     "typescript": "^5.0.0"
   },
   "dependencies": {

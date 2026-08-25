@@ -11,13 +11,17 @@
 //! many packets, and on which ports, are policy the caller owns. Enumerating
 //! interfaces needs a platform crate, and this one has no dependencies.
 //!
-//! The MAC formats accepted here match `wol-go`'s: twelve bare hex digits, or
-//! six pairs separated by `:`, `-`, or `.`.
+//! The MAC formats accepted here are the ones the repository README documents
+//! for *every* implementation: twelve bare hex digits, or six pairs joined by
+//! `:`, `-` or `.`. Separators are accepted only in the positions where they
+//! belong; which of the three is used at each position is not constrained,
+//! because `wol-go`, `wol-js`, `wol-py` and `wol-zig` all match on
+//! `^([0-9A-Fa-f]{2}[.:-]){5}[0-9A-Fa-f]{2}$` and so accept a mixture.
 
 use std::error::Error;
 use std::fmt;
 use std::io;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::str::FromStr;
 
 /// Six 0xFF bytes, then the target MAC sixteen times.
@@ -68,12 +72,11 @@ impl fmt::Display for MacAddress {
 /// panics on user input cannot be called from a daemon.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MacParseError {
-    /// Not twelve hex digits, and not six separated pairs.
+    /// Not twelve bytes, and not seventeen.
     Length,
-    /// The separators are not all the same character, or are not one of
-    /// `:`, `-`, `.`.
+    /// A byte in a separator position is not one of `:`, `-`, `.`.
     Separator,
-    /// A character that is not a hex digit.
+    /// A byte in a digit position is not an ASCII hex digit.
     NotHex,
 }
 
@@ -81,7 +84,7 @@ impl fmt::Display for MacParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let reason = match self {
             Self::Length => "a MAC address is twelve hex digits, or six separated pairs",
-            Self::Separator => "separators must all be the same one of ':', '-', '.'",
+            Self::Separator => "separators must be one of ':', '-', '.', and only between pairs",
             Self::NotHex => "contains a character that is not a hex digit",
         };
         f.write_str(reason)
@@ -94,38 +97,61 @@ impl FromStr for MacAddress {
     type Err = MacParseError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let digits: String = match text.len() {
-            12 => text.to_string(),
-            17 => {
-                // Six pairs and five separators. Every separator must be the
-                // same character, so `aa:bb-cc.dd:ee:ff` is refused rather than
-                // quietly accepted.
-                let separator = text.as_bytes()[2];
-                if !matches!(separator, b':' | b'-' | b'.') {
-                    return Err(MacParseError::Separator);
+        // Deliberately byte-wise. `text` is arbitrary user input: slicing it by
+        // character index, or chunking `as_bytes()` without first proving every
+        // byte is ASCII, splits a multi-byte sequence. `"αβγδεζ"` is twelve
+        // bytes and used to panic here.
+        let bytes = text.as_bytes();
+        let mut digits = [0u8; 12];
+
+        match bytes.len() {
+            12 => {
+                for (slot, &byte) in digits.iter_mut().zip(bytes) {
+                    if !byte.is_ascii_hexdigit() {
+                        return Err(MacParseError::NotHex);
+                    }
+                    *slot = byte;
                 }
-                let mut digits = String::with_capacity(12);
-                for (index, byte) in text.bytes().enumerate() {
+            }
+            17 => {
+                // Six pairs and five separators. Each of the three separators
+                // is accepted in each position independently, matching the
+                // regex the other four implementations share.
+                let mut next = 0;
+                for (index, &byte) in bytes.iter().enumerate() {
                     if index % 3 == 2 {
-                        if byte != separator {
+                        if !matches!(byte, b':' | b'-' | b'.') {
                             return Err(MacParseError::Separator);
                         }
                     } else {
-                        digits.push(byte as char);
+                        if !byte.is_ascii_hexdigit() {
+                            return Err(MacParseError::NotHex);
+                        }
+                        digits[next] = byte;
+                        next += 1;
                     }
                 }
-                digits
             }
             _ => return Err(MacParseError::Length),
-        };
+        }
 
-        let mut bytes = [0u8; 6];
-        for (slot, pair) in bytes.iter_mut().zip(digits.as_bytes().chunks(2)) {
+        // Every byte above was proved to be an ASCII hex digit, so neither the
+        // UTF-8 conversion nor the radix conversion below can fail.
+        let mut address = [0u8; 6];
+        for (slot, pair) in address.iter_mut().zip(digits.chunks(2)) {
             let pair = std::str::from_utf8(pair).map_err(|_| MacParseError::NotHex)?;
             *slot = u8::from_str_radix(pair, 16).map_err(|_| MacParseError::NotHex)?;
         }
-        Ok(MacAddress(bytes))
+        Ok(MacAddress(address))
     }
+}
+
+/// Normalize a MAC address to its six raw bytes.
+///
+/// A free function over [`MacAddress::from_str`], for callers that want the
+/// bytes and not the type.
+pub fn parse_mac_address(mac_address: &str) -> Result<[u8; 6], Box<dyn Error>> {
+    Ok(*mac_address.parse::<MacAddress>()?.as_bytes())
 }
 
 /// Six 0xFF bytes followed by the MAC repeated sixteen times.
@@ -178,20 +204,36 @@ pub fn send_from(packet: &[u8], bind: SocketAddr, target: SocketAddr) -> io::Res
 ///
 /// Kept for callers written against the first version of this crate. It now
 /// returns an error where it used to panic. Prefer [`magic_packet`].
-pub fn create_magic_packet(
-    mac_address: String,
-) -> Result<[u8; MAGIC_PACKET_LEN], Box<dyn Error>> {
+pub fn create_magic_packet(mac_address: String) -> Result<[u8; MAGIC_PACKET_LEN], Box<dyn Error>> {
     Ok(magic_packet(mac_address.parse::<MacAddress>()?))
 }
 
-/// Send one magic packet, letting the OS choose the outgoing interface.
+/// Send one magic packet to `ip:port`, letting the OS choose the outgoing
+/// interface.
 ///
-/// Kept for callers written against the first version of this crate. On a
-/// multi-homed host this can send from the wrong interface and reach nothing —
-/// see [`send_from`], which is what a caller that cares should use.
+/// `ip` may be a literal address or a host name; a literal is parsed by std
+/// without a DNS lookup. Kept for callers written against the first version of
+/// this crate. On a multi-homed host this can send from the wrong interface and
+/// reach nothing — see [`send_from`], which is what a caller that cares should
+/// use.
 pub fn wakeonlan(mac_address: String, ip: String, port: u16) -> Result<(), Box<dyn Error>> {
+    if port == 0 {
+        return Err("invalid port 0: expected an integer between 1 and 65535".into());
+    }
     let packet = magic_packet(mac_address.parse::<MacAddress>()?);
-    let target: SocketAddr = format!("{ip}:{port}").parse()?;
+
+    // Resolve rather than parse, so host names work as well as literal IPs.
+    // Wake-on-LAN is an IPv4 broadcast protocol in practice, so an IPv4 result
+    // is preferred over an IPv6 one when a name resolves to both; a name with
+    // only IPv6 addresses is still attempted rather than refused.
+    let candidates: Vec<SocketAddr> = (ip.as_str(), port).to_socket_addrs()?.collect();
+    let target = candidates
+        .iter()
+        .copied()
+        .find(SocketAddr::is_ipv4)
+        .or_else(|| candidates.first().copied())
+        .ok_or_else(|| format!("could not resolve {ip:?} to an address"))?;
+
     let bind: SocketAddr = match target {
         SocketAddr::V4(_) => "0.0.0.0:0".parse()?,
         SocketAddr::V6(_) => "[::]:0".parse()?,
@@ -211,7 +253,10 @@ mod tests {
         let packet = create_magic_packet("aa:bb:cc:dd:ee:ff".to_string()).unwrap();
         assert_eq!(packet.len(), 102);
         assert_eq!(packet[..6], [0xFF; 6]);
-        assert_eq!(packet[6..102], [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF].repeat(16));
+        assert_eq!(
+            packet[6..102],
+            [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF].repeat(16)
+        );
     }
 
     #[test]
@@ -220,19 +265,43 @@ mod tests {
     }
 
     #[test]
-    fn every_separator_wol_go_accepts_parses_to_the_same_address() {
-        for text in ["aabbccddeeff", "aa:bb:cc:dd:ee:ff", "aa-bb-cc-dd-ee-ff", "aa.bb.cc.dd.ee.ff"] {
+    fn every_accepted_form_parses_to_the_same_address() {
+        for text in [
+            "aabbccddeeff",
+            "aa:bb:cc:dd:ee:ff",
+            "aa-bb-cc-dd-ee-ff",
+            "aa.bb.cc.dd.ee.ff",
+        ] {
             assert_eq!(text.parse::<MacAddress>().unwrap(), AABB, "{text}");
         }
         assert_eq!("AA:BB:CC:DD:EE:FF".parse::<MacAddress>().unwrap(), AABB);
     }
 
+    /// `wol-go`, `wol-js`, `wol-py` and `wol-zig` all accept a separator per
+    /// position rather than one per address, and the README promises every
+    /// implementation takes the same input. A stricter Rust would be the one
+    /// that rejects a string the other four wake a machine with.
     #[test]
-    fn mixed_separators_are_refused_rather_than_stripped() {
-        assert_eq!(
-            "aa:bb-cc.dd:ee:ff".parse::<MacAddress>(),
-            Err(MacParseError::Separator)
-        );
+    fn mixed_separators_parse_like_every_other_implementation() {
+        assert_eq!("aa:bb-cc.dd:ee:ff".parse::<MacAddress>().unwrap(), AABB);
+    }
+
+    #[test]
+    fn rejects_separators_in_the_wrong_places() {
+        for text in [
+            "aabb.ccdd.eeff",
+            "aa:bb:cc:dd:ee:ff:",
+            "::::aabbccddeeff",
+            "-.:aabbccddeeff:.-",
+            "a-a-b-b-c-c-d-d-e-e-f-f",
+            "aa1bb1cc1dd1ee1ff",
+            "aa\\bb\\cc\\dd\\ee\\ff",
+        ] {
+            assert!(
+                text.parse::<MacAddress>().is_err(),
+                "expected {text:?} to be rejected"
+            );
+        }
     }
 
     /// The defect this crate shipped with: `from_str_radix(..).unwrap()` on a
@@ -241,15 +310,46 @@ mod tests {
     #[test]
     fn non_hex_input_is_an_error_and_not_a_panic() {
         for text in ["zz:bb:cc:dd:ee:ff", "gggggggggggg", "aa:bb:cc:dd:ee:gg"] {
-            assert_eq!(text.parse::<MacAddress>(), Err(MacParseError::NotHex), "{text}");
+            assert_eq!(
+                text.parse::<MacAddress>(),
+                Err(MacParseError::NotHex),
+                "{text}"
+            );
         }
+    }
+
+    /// Twelve bytes of UTF-8, but six characters: chunking by two bytes used to
+    /// split a multi-byte sequence and panic.
+    #[test]
+    fn non_ascii_input_is_an_error_and_not_a_panic() {
+        assert_eq!("αβγδεζ".parse::<MacAddress>(), Err(MacParseError::NotHex));
+        assert!(create_magic_packet("αβγδεζ".to_string()).is_err());
     }
 
     #[test]
     fn wrong_length_is_an_error() {
         for text in ["", "aabbccddeef", "aabbccddeeff00"] {
-            assert_eq!(text.parse::<MacAddress>(), Err(MacParseError::Length), "{text}");
+            assert_eq!(
+                text.parse::<MacAddress>(),
+                Err(MacParseError::Length),
+                "{text}"
+            );
         }
+    }
+
+    #[test]
+    fn parse_mac_address_returns_the_raw_bytes() {
+        assert_eq!(
+            parse_mac_address("aa:bb:cc:dd:ee:ff").unwrap(),
+            [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]
+        );
+        assert!(parse_mac_address("nope").is_err());
+    }
+
+    /// Rejected before a socket is opened, so this test sends nothing.
+    #[test]
+    fn rejects_port_zero() {
+        assert!(wakeonlan("aabbccddeeff".to_string(), "127.0.0.1".to_string(), 0).is_err());
     }
 
     #[test]

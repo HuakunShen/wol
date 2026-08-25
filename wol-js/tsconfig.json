@@ -23,5 +23,9 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+
+  // deno-mod.ts and deno-cli.ts target the Deno runtime and are
+  // type-checked by `deno check`, not by tsc.
+  "exclude": ["src/deno-mod.ts", "deno-cli.ts", "dist"]
 }
